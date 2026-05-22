@@ -1,34 +1,38 @@
+import { useNavigate } from "react-router-dom";
 import { COLORS } from "./constants";
 import EventCard from "./EventCard";
-import { PlusIcon } from "./Icons";
 
-export default function RecommendedSection({ liveEvents = [], onEventClick }) {
-  // Show up to 6 most recent approved events
-  const display = [...liveEvents].sort((a, b) => b.id - a.id).slice(0, 6)
+export default function RecommendedSection({ events = [] }) {
+  const navigate = useNavigate();
+
+  // Show up to 3 events
+  const display = events.slice(0, 3);
 
   return (
     <section style={{ padding: "32px 32px 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
         <div>
           <h2 style={{ fontFamily: "'Sora', sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.text, margin: 0 }}>
-            Upcoming Events
+            Recommended for You
           </h2>
           <p style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: COLORS.textMuted, margin: "4px 0 0" }}>
             {display.length > 0
-              ? `${display.length} approved event${display.length !== 1 ? "s" : ""} from organizers`
-              : "Events approved by admins will appear here."}
+              ? "Based on your tech and arts interests"
+              : "Events will appear here once published."}
           </p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <button
-            onClick={() => onEventClick?.()}
-            style={{
-              fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: COLORS.accentLight,
-              background: "none", border: "none", cursor: "pointer", textDecoration: "underline",
-            }}>
-            View All Events
-          </button>
-        </div>
+        <button
+          onClick={() => navigate('/events')}
+          style={{
+            fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: COLORS.accentLight,
+            background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 8,
+            padding: "7px 16px", cursor: "pointer", transition: "border-color 0.2s",
+          }}
+          onMouseEnter={e => e.currentTarget.style.borderColor = COLORS.accent}
+          onMouseLeave={e => e.currentTarget.style.borderColor = COLORS.border}
+        >
+          View All Events →
+        </button>
       </div>
 
       {display.length === 0 ? (
@@ -38,11 +42,13 @@ export default function RecommendedSection({ liveEvents = [], onEventClick }) {
           color: COLORS.textMuted, fontSize: 14,
         }}>
           <div style={{ fontSize: 36, marginBottom: 10 }}>📭</div>
-          No approved events yet. Check back soon!
+          No events yet. Check back soon!
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, marginTop: 20 }}>
-          {display.map(event => <EventCard key={event.id} event={event} onOpen={onEventClick} />)}
+          {display.map(event => (
+            <EventCard key={event._id || event.id} event={event} />
+          ))}
         </div>
       )}
     </section>

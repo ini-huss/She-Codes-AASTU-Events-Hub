@@ -3,18 +3,21 @@ import { useApp } from '../context/AppContext'
 import {
   LayoutDashboard, CalendarDays, BarChart2,
   Users, Settings, Zap, HelpCircle, Plus, LogOut,
-  Crown, ShieldCheck, Pencil, Eye, ClipboardList, Lightbulb
+  Crown, ShieldCheck, Pencil, Eye, ClipboardList, Lightbulb,
+  ClipboardCheck, UserCheck
 } from 'lucide-react'
 import s from './Sidebar.module.css'
 
 const NAV_META = {
-  dashboard:   { icon: LayoutDashboard, key: 'dashboard' },
-  events:      { icon: CalendarDays,    key: 'events' },
-  analytics:   { icon: BarChart2,       key: 'analytics' },
-  users:       { icon: Users,           key: 'users' },
-  suggestions: { icon: Lightbulb,       key: 'suggestions' },
-  audit:       { icon: ClipboardList,   key: 'audit' },
-  settings:    { icon: Settings,        key: 'settings' },
+  dashboard:     { icon: LayoutDashboard, key: 'dashboard' },
+  events:        { icon: CalendarDays,    key: 'events' },
+  registrations: { icon: ClipboardCheck, key: 'registrations' },
+  attendees:     { icon: UserCheck,       key: 'attendees' },
+  analytics:     { icon: BarChart2,       key: 'analytics' },
+  users:         { icon: Users,           key: 'users' },
+  suggestions:   { icon: Lightbulb,       key: 'suggestions' },
+  audit:         { icon: ClipboardList,   key: 'audit' },
+  settings:      { icon: Settings,        key: 'settings' },
 }
 
 // Visual badge for each role
@@ -94,6 +97,15 @@ export default function Sidebar() {
 
         <button className={s.logoutBtn} onClick={logout}>
           <LogOut size={14} /> {t('signOut')}
+        </button>
+
+        {/* Link back to student portal */}
+        <button
+          className={s.logoutBtn}
+          style={{ marginTop: 6, color: 'var(--accent)', borderColor: 'var(--accent)', opacity: 0.85 }}
+          onClick={() => window.open('http://localhost:5174/home', '_blank')}
+        >
+          <Zap size={14} /> Student Site ↗
         </button>
       </div>
     </aside>

@@ -1,6 +1,26 @@
 import { useState } from "react"
 import { COLORS } from "../components/constants"
 
+// Simple SHA-256 hash using Web Crypto API (same salt as Admin panel)
+async function hashPassword(password) {
+  const encoder = new TextEncoder()
+  const salted = 'aastu_events_2024_' + password
+  const data = encoder.encode(salted)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+// Storage key for student accounts (email → passwordHash map)
+const STUDENT_ACCOUNTS_KEY = 'aastu_student_accounts'
+
+function loadStudentAccounts() {
+  try { return JSON.parse(localStorage.getItem(STUDENT_ACCOUNTS_KEY) || '{}') } catch { return {} }
+}
+function saveStudentAccounts(accounts) {
+  try { localStorage.setItem(STUDENT_ACCOUNTS_KEY, JSON.stringify(accounts)) } catch {}
+}
+
 const ROLES = ["Student", "Faculty", "Staff", "Alumni", "Other"]
 
 const DEPARTMENTS = [
@@ -15,40 +35,65 @@ const DEPARTMENTS = [
 ]
 
 export default function AuthModal({ mode, onClose, onLogin, onSignup, onSwitch }) {
-  const [step, setStep]       = useState(mode === 'signup' ? 'role' : 'form')
-  const [role, setRole]       = useState("")
-  const [name, setName]       = useState("")
-  const [email, setEmail]     = useState("")
-  const [dept, setDept]       = useState("")
+  const [step, setStep]           = useState(mode === 'signup' ? 'role' : 'form')
+  const [role, setRole]           = useState("")
+  const [name, setName]           = useState("")
+  const [email, setEmail]         = useState("")
+  const [password, setPassword]   = useState("")
+  const [confirm, setConfirm]     = useState("")
+  const [dept, setDept]           = useState("")
   const [studentId, setStudentId] = useState("")
-  const [err, setErr]         = useState("")
+  const [err, setErr]             = useState("")
 
   function handleRoleSelect(r) {
     setRole(r)
     setStep('form')
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     setErr("")
-    if (!name.trim() || !email.trim()) { setErr("Please fill in all required fields."); return }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setErr("Please enter a valid email address."); return }
 
     if (mode === 'signup') {
-      onSignup({ name: name.trim(), email: email.trim().toLowerCase(), role: role || "Student", department: dept, studentId: studentId.trim() })
+      if (!name.trim() || !email.trim() || !password) { setErr("Please fill in all required fields."); return }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setErr("Please enter a valid email address."); return }
+      if (password.length < 6) { setErr("Password must be at least 6 characters."); return }
+      if (password !== confirm) { setErr("Passwords do not match."); return }
+
+      // Check if account already exists
+      const accounts = loadStudentAccounts()
+      const key = email.trim().toLowerCase()
+      if (accounts[key]) { setErr("An account with this email already exists."); return }
+
+      // Hash and store
+      const hash = await hashPassword(password)
+      accounts[key] = { hash, name: name.trim(), role: role || "Student", department: dept, studentId: studentId.trim() }
+      saveStudentAccounts(accounts)
+
+      onSignup({ name: name.trim(), email: key, role: role || "Student", department: dept, studentId: studentId.trim() })
+
     } else {
-      // Login: look up existing student session by email
+      // Login
+      if (!email.trim() || !password) { setErr("Please fill in all required fields."); return }
+      const accounts = loadStudentAccounts()
+      const key = email.trim().toLowerCase()
+      const account = accounts[key]
+      if (!account) { setErr("No account found with that email."); return }
+
+      const hash = await hashPassword(password)
+      if (hash !== account.hash) { setErr("Invalid email or password."); return }
+
+      // Restore full session from stored account data
       const existing = (() => {
         try {
           const s = JSON.parse(localStorage.getItem('aastu_student_session') || 'null')
-          return s && s.email === email.trim().toLowerCase() ? s : null
+          return s && s.email === key ? s : null
         } catch { return null }
       })()
       if (existing) {
         onLogin(existing)
       } else {
-        // Create a new session for this email (first-time login)
-        onLogin({ id: Date.now(), name: name.trim(), email: email.trim().toLowerCase(), role: role || "Student", department: dept })
+        onLogin({ id: Date.now(), name: account.name, email: key, role: account.role || "Student", department: account.department })
       }
     }
   }
@@ -138,6 +183,22 @@ export default function AuthModal({ mode, onClose, onLogin, onSignup, onSwitch }
               {mode === 'signup' && (
                 <>
                   <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>Password *</label>
+                    <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Min. 6 characters" type="password"
+                      style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "11px 14px", color: COLORS.text, fontSize: 14, outline: "none" }}
+                      onFocus={e => e.target.style.borderColor = COLORS.accent}
+                      onBlur={e => e.target.style.borderColor = COLORS.border}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>Confirm Password *</label>
+                    <input value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat your password" type="password"
+                      style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "11px 14px", color: COLORS.text, fontSize: 14, outline: "none" }}
+                      onFocus={e => e.target.style.borderColor = COLORS.accent}
+                      onBlur={e => e.target.style.borderColor = COLORS.border}
+                    />
+                  </div>
+                  <div>
                     <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>Department</label>
                     <select value={dept} onChange={e => setDept(e.target.value)}
                       style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "11px 14px", color: dept ? COLORS.text : COLORS.textMuted, fontSize: 14, outline: "none" }}>
@@ -156,6 +217,17 @@ export default function AuthModal({ mode, onClose, onLogin, onSignup, onSwitch }
                     </div>
                   )}
                 </>
+              )}
+
+              {mode === 'login' && (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: COLORS.textMuted, display: "block", marginBottom: 6 }}>Password *</label>
+                  <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Your password" type="password"
+                    style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 10, padding: "11px 14px", color: COLORS.text, fontSize: 14, outline: "none" }}
+                    onFocus={e => e.target.style.borderColor = COLORS.accent}
+                    onBlur={e => e.target.style.borderColor = COLORS.border}
+                  />
+                </div>
               )}
 
               {err && <div style={{ background: "#7f1d1d", color: "#fca5a5", borderRadius: 8, padding: "10px 14px", fontSize: 13 }}>{err}</div>}
