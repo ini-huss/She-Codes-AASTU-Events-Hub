@@ -1,19 +1,14 @@
-﻿import { useEffect, useState, useCallback } from "react"
-import { COLORS } from "./components/constants"
-import {
-  getPublicEvents, getStudentSession, saveStudentSession,
-  clearStudentSession, checkUpcomingReminders, onEventsChange,
-  getStudentNotifs, markNotifsRead, getMyRegistrations,
-  registerForEvent, cancelRegistration,
-  pushStudentNotif,
-} from "./bridge"
-
-import LandingPage   from "./pages/LandingPage"
-import EventsPage    from "./pages/EventsPage"
-import DashboardPage from "./pages/DashboardPage"
-import AuthModal     from "./pages/AuthModal"
-import Navbar        from "./components/Navbar"
-import Footer        from "./components/Footer"
+﻿import { Routes, Route, Navigate, useNavigate } from 'react-router-dom'
+import { COLORS } from './components/constants'
+import Navbar from './components/Navbar'
+import Footer from './components/Footer'
+import LandingPage      from './pages/LandingPage'
+import StudentHomePage  from './pages/StudentHomePage'
+import AuthPage         from './pages/AuthPage'
+import EventsPage       from './pages/EventsPage'
+import EventDetailPage  from './pages/EventDetailPage'
+import DashboardPage    from './pages/DashboardPage'
+import MyEventsPage     from './pages/MyEventsPage'
 
 // ── Global styles ─────────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -34,174 +29,111 @@ const GLOBAL_CSS = `
   .fade-in { animation: fadeIn .4s ease both; }
 `
 
-export default function App() {
-  const [page, setPage]               = useState("home")
-  const [student, setStudent]         = useState(() => getStudentSession())
-  const [liveEvents, setLiveEvents]   = useState(() => getPublicEvents())
-  const [authModal, setAuthModal]     = useState(null) // null | 'login' | 'signup'
-  const [selectedEvent, setSelectedEvent] = useState(null)
-  const [notifs, setNotifs]           = useState([])
-  const [myRegs, setMyRegs]           = useState([])
+// ── Session helpers ───────────────────────────────────────────────────────────
+export function getSession() {
+  try {
+    const user = JSON.parse(sessionStorage.getItem('user') || 'null')
+    const token = sessionStorage.getItem('token')
+    return token && user ? { user, token } : null
+  } catch { return null }
+}
 
-  // ── Load live events & keep in sync ────────────────────────────────────────
-  useEffect(() => {
-    const unsub = onEventsChange(setLiveEvents)
-    const poll  = setInterval(() => setLiveEvents(getPublicEvents()), 8000)
-    return () => { unsub(); clearInterval(poll) }
-  }, [])
+export function saveSession(token, user) {
+  sessionStorage.setItem('token', token)
+  sessionStorage.setItem('user', JSON.stringify(user))
+}
 
-  // ── On student login: load notifs, registrations, check reminders ──────────
-  useEffect(() => {
-    if (!student) { setNotifs([]); setMyRegs([]); return }
-    setNotifs(getStudentNotifs(student.id))
-    setMyRegs(getMyRegistrations(student.id))
-    checkUpcomingReminders(student.id)
-    // Re-check notifs every 30s
-    const t = setInterval(() => {
-      setNotifs(getStudentNotifs(student.id))
-      setMyRegs(getMyRegistrations(student.id))
-      checkUpcomingReminders(student.id)
-    }, 30000)
-    return () => clearInterval(t)
-  }, [student])
+export function clearSession() {
+  sessionStorage.removeItem('token')
+  sessionStorage.removeItem('user')
+}
 
-  // ── Auth ────────────────────────────────────────────────────────────────────
-  function handleSignup(data) {
-    const s = { id: Date.now(), ...data, joinedAt: new Date().toISOString() }
-    saveStudentSession(s)
-    setStudent(s)
-    setAuthModal(null)
-    pushStudentNotif(s.id, {
-      type: 'welcome',
-      title: `Welcome, ${s.name}! 🎉`,
-      message: 'Your AASTU Events Hub account is ready. Browse events and register for ones you love!',
-    })
-    setNotifs(getStudentNotifs(s.id))
-  }
+// ── Protected route — redirects to / if not logged in ────────────────────────
+function RequireAuth({ children }) {
+  const session = getSession()
+  if (!session) return <Navigate to="/" replace />
+  return children
+}
 
-  function handleLogin(data) {
-    // In this localStorage-based system, login just restores/creates the session
-    const s = { id: data.id || Date.now(), ...data }
-    saveStudentSession(s)
-    setStudent(s)
-    setAuthModal(null)
-    checkUpcomingReminders(s.id)
-    setNotifs(getStudentNotifs(s.id))
-    setMyRegs(getMyRegistrations(s.id))
-  }
+// ── Layout wrapper with Navbar + Footer ──────────────────────────────────────
+function Layout({ children, hideFooter }) {
+  const navigate = useNavigate()
+  const session  = getSession()
+  const student  = session?.user || null
 
   function handleLogout() {
-    clearStudentSession()
-    setStudent(null)
-    setPage("home")
+    clearSession()
+    navigate('/')
   }
 
-  // ── Registration ────────────────────────────────────────────────────────────
-  function handleRegister(event) {
-    if (!student) { setAuthModal('signup'); return }
-    const result = registerForEvent(event, student)
-    if (result.ok) {
-      setMyRegs(getMyRegistrations(student.id))
-      setNotifs(getStudentNotifs(student.id))
-      setLiveEvents(prev =>
-        prev.map(e => e.id === event.id ? { ...e, registrations: (e.registrations || 0) + 1 } : e)
-      )
-    }
-    return result
-  }
+  return (
+    <div style={{ background: COLORS.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Navbar
+        student={student}
+        onLogout={handleLogout}
+      />
+      <main style={{ flex: 1 }}>
+        {children}
+      </main>
+      {!hideFooter && <Footer />}
+    </div>
+  )
+}
 
-  function handleCancel(eventId) {
-    if (!student) return
-    cancelRegistration(eventId, student.id)
-    setMyRegs(getMyRegistrations(student.id))
-    setLiveEvents(prev =>
-      prev.map(e => e.id === eventId ? { ...e, registrations: Math.max(0, (e.registrations || 1) - 1) } : e)
-    )
-  }
-
-  function handleMarkNotifsRead() {
-    if (!student) return
-    markNotifsRead(student.id)
-    setNotifs(getStudentNotifs(student.id))
-  }
-
-  // ── Navigation ──────────────────────────────────────────────────────────────
-  const goTo = useCallback((p, extra) => {
-    setPage(p)
-    if (extra?.event) setSelectedEvent(extra.event)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [])
-
-  const unreadCount = notifs.filter(n => !n.read).length
-
+// ── App ───────────────────────────────────────────────────────────────────────
+export default function App() {
   return (
     <>
       <style>{GLOBAL_CSS}</style>
-      <div style={{ background: COLORS.bg, minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-        <Navbar
-          page={page}
-          student={student}
-          notifs={notifs}
-          unreadCount={unreadCount}
-          onMarkRead={handleMarkNotifsRead}
-          onGoTo={goTo}
-          onLogin={() => setAuthModal('login')}
-          onLogout={handleLogout}
-        />
+      <Routes>
+        {/* Public */}
+        <Route path="/" element={
+          <Layout>
+            <LandingPage />
+          </Layout>
+        } />
+        <Route path="/auth" element={<AuthPage />} />
 
-        <main style={{ flex: 1 }}>
-          {page === "home" && (
-            <LandingPage
-              liveEvents={liveEvents}
-              student={student}
-              onGoTo={goTo}
-              onGetStarted={() => setAuthModal(student ? null : 'signup')}
-            />
-          )}
-          {page === "events" && (
-            <EventsPage
-              liveEvents={liveEvents}
-              student={student}
-              myRegs={myRegs}
-              selectedEvent={selectedEvent}
-              onRegister={handleRegister}
-              onCancel={handleCancel}
-              onLogin={() => setAuthModal('login')}
-            />
-          )}
-          {page === "dashboard" && (
-            student
-              ? <DashboardPage
-                  student={student}
-                  liveEvents={liveEvents}
-                  myRegs={myRegs}
-                  notifs={notifs}
-                  onMarkRead={handleMarkNotifsRead}
-                  onGoTo={goTo}
-                  onCancel={handleCancel}
-                />
-              : <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 16 }}>
-                  <div style={{ fontSize: 48 }}>🔒</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: COLORS.text }}>Sign in to view your dashboard</div>
-                  <button onClick={() => setAuthModal('login')} style={{ background: COLORS.accent, color: '#fff', border: 'none', borderRadius: 12, padding: '12px 28px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}>
-                    Sign In
-                  </button>
-                </div>
-          )}
-        </main>
+        {/* Student protected */}
+        <Route path="/home" element={
+          <RequireAuth>
+            <Layout>
+              <StudentHomePage />
+            </Layout>
+          </RequireAuth>
+        } />
+        <Route path="/events" element={
+          <RequireAuth>
+            <Layout>
+              <EventsPage />
+            </Layout>
+          </RequireAuth>
+        } />
+        <Route path="/events/:id" element={
+          <RequireAuth>
+            <Layout hideFooter>
+              <EventDetailPage />
+            </Layout>
+          </RequireAuth>
+        } />
+        <Route path="/my-events" element={
+          <RequireAuth>
+            <Layout>
+              <MyEventsPage />
+            </Layout>
+          </RequireAuth>
+        } />
+        <Route path="/dashboard" element={
+          <RequireAuth>
+            <Layout>
+              <DashboardPage />
+            </Layout>
+          </RequireAuth>
+        } />
 
-        <Footer onGoTo={goTo} />
-
-        {authModal && (
-          <AuthModal
-            mode={authModal}
-            onClose={() => setAuthModal(null)}
-            onLogin={handleLogin}
-            onSignup={handleSignup}
-            onSwitch={m => setAuthModal(m)}
-          />
-        )}
-      </div>
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </>
   )
 }

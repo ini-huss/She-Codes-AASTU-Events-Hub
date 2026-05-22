@@ -10,7 +10,7 @@ const generateToken = (userId) => {
 // Register User
 const register = async (req, res) => {
   try {
-    const { name, email, password, department, studentId } = req.body;
+    const { name, email, password, department, studentId, role } = req.body;
 
     // Validate input
     if (!name || !email || !password) {
@@ -38,6 +38,7 @@ const register = async (req, res) => {
       name,
       email,
       password: hashedPassword,
+      role: role === "admin" ? "admin" : "user",
       department: department || "",
       studentId: studentId || ""
     });

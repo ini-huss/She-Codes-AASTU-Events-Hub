@@ -5,6 +5,7 @@ import { can, ROLE_LEVEL, assignableRoles } from '../data/roles'
 import { hashPassword, verifyPassword } from '../utils/crypto'
 import { writeAuditEntry, AUDIT, severityOf } from '../utils/auditLog'
 import { syncPublicEvents, onRegistrationsChange, getRegistrationCountForEvent } from '../utils/studentBridge'
+import api from '../api'
 
 const AppContext = createContext(null)
 
@@ -53,16 +54,34 @@ export function AppProvider({ children }) {
   const [inboxes, setInboxesRaw]           = useState(() => load('aastu_inboxes', {}))
   const [activePage, setActivePage]        = useState('dashboard')
   const [currentUser, setCurrentUser]      = useState(() => {
+    // 1. Try the admin's own localStorage session first
     const saved = load('aastu_session', null)
-    if (!saved) return null
-    // Always re-sync from accounts so promoted roles take effect immediately
-    const accs = load('aastu_accounts', [])
-    const fresh = accs.find(a => a.id === saved.id)
-    if (!fresh) return null
-    const { passwordHash: _, ...safeUser } = fresh
-    // Update the saved session with the latest role
-    save('aastu_session', safeUser)
-    return safeUser
+    if (saved) {
+      const accs = load('aastu_accounts', [])
+      const fresh = accs.find(a => a.id === saved.id)
+      if (fresh) {
+        const { passwordHash: _, ...safeUser } = fresh
+        save('aastu_session', safeUser)
+        return safeUser
+      }
+    }
+    // 2. Fall back to sessionStorage set by the unified auth page (5174/auth)
+    try {
+      const ssUser  = JSON.parse(sessionStorage.getItem('user') || 'null')
+      const ssToken = sessionStorage.getItem('token')
+      if (ssToken && ssUser && (ssUser.role || '').toLowerCase() === 'admin') {
+        // Synthesise a minimal admin record so the app renders correctly
+        return {
+          id:         ssUser.id || ssUser._id || Date.now(),
+          name:       ssUser.name,
+          email:      ssUser.email,
+          role:       'Admin',
+          department: ssUser.department || '',
+          avatar:     (ssUser.name || 'AD').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
+        }
+      }
+    } catch {}
+    return null
   })
   const [authError, setAuthError]          = useState('')
   const [authLoading, setAuthLoading]      = useState(false)
@@ -265,6 +284,8 @@ export function AppProvider({ children }) {
     audit(AUDIT.LOGOUT, { detail: 'User logged out' })
     setCurrentUser(null)
     save('aastu_session', null)
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('user')
     setActivePage('dashboard')
   }
 
@@ -401,6 +422,21 @@ export function AppProvider({ children }) {
 
   function addEvent(event) {
     if (!userCan('canCreateEvents')) return
+    // Map admin form fields to backend schema
+    const payload = {
+      title:       event.name,
+      description: event.description || 'No description provided.',
+      date:        event.date,
+      location:    event.venue,
+      capacity:    event.capacity || 100,
+      category:    event.category?.toLowerCase() || 'other',
+      price:       event.price || 0,
+      organizer:   event.organizer,
+      status:      'published',
+    }
+    // Call backend API (fire-and-forget — also keep local state in sync)
+    api.post('/events', payload).catch(() => {})
+
     const newEvent = {
       ...event,
       id: Date.now(),
