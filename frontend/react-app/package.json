@@ -21,6 +21,8 @@
   },
   "homepage": "https://github.com/sole21ab/She-Codes-AASTU-Events-Hub#readme",
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "mongoose": "^9.6.2",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-router-dom": "^7.15.1"
