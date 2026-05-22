@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
-import { Search, Plus, Trash2, Pencil, X, Check, Shield } from 'lucide-react'
+import { Search, Plus, Trash2, Pencil, X, Check, Shield, ShieldCheck, Crown, Eye, UserCheck } from 'lucide-react'
 import { assignableRoles, ROLE_LEVEL } from '../data/roles'
 import s from './UsersPage.module.css'
 
@@ -13,7 +13,42 @@ const ROLE_STYLE = {
   'Viewer':      s.roleViewer,
 }
 
-// ── Add / Edit User Modal ─────────────────────────────────────────────────────
+// Role button config for the inline Super Admin role picker
+const ROLE_BUTTONS = [
+  { role: 'Admin',     label: 'Admin',     icon: ShieldCheck, color: '#10b981', activeClass: s.roleAdminBtn },
+  { role: 'Organizer', label: 'Organizer', icon: Pencil,      color: '#a855f7', activeClass: s.roleOrgBtn  },
+  { role: 'Viewer',    label: 'Viewer',    icon: Eye,         color: '#6b9aaa', activeClass: s.roleViewBtn },
+]
+
+// ── Inline Role Picker (Super Admin only) ─────────────────────────────────────
+function RolePicker({ user, onAssign, currentUser }) {
+  const assignable = assignableRoles(currentUser)
+  if (assignable.length === 0) return null
+
+  return (
+    <div className={s.rolePicker}>
+      {ROLE_BUTTONS.filter(b => assignable.includes(b.role)).map(({ role, label, icon: Icon, color, activeClass }) => {
+        const isActive = user.role === role
+        return (
+          <button
+            key={role}
+            className={`${s.rolePickBtn} ${isActive ? activeClass : ''}`}
+            style={isActive ? { borderColor: color, color } : {}}
+            title={isActive ? `Current role: ${role}` : `Assign ${role}`}
+            onClick={() => !isActive && onAssign(user.id, role)}
+            disabled={isActive}
+          >
+            <Icon size={11} />
+            {label}
+            {isActive && <Check size={10} className={s.roleCheckMark} />}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Add / Edit User Modal (for non-Super-Admin or adding new users) ───────────
 function UserModal({ user, onClose, onSave, title, currentUser }) {
   const roles = assignableRoles(currentUser)
   const blank = {
@@ -91,15 +126,17 @@ function UserModal({ user, onClose, onSave, title, currentUser }) {
               </optgroup>
             </select>
           </label>
-          <label className={s.label}>Role
-            <select className={s.input} value={form.role} onChange={e => set('role', e.target.value)}>
-              {/* Only show roles the current user is allowed to assign */}
-              {roles.length > 0
-                ? roles.map(r => <option key={r}>{r}</option>)
-                : <option>{form.role}</option>
-              }
-            </select>
-          </label>
+          {/* Only show role selector in modal for non-Super-Admin (Super Admin uses inline buttons) */}
+          {currentUser?.role !== 'Super Admin' && (
+            <label className={s.label}>Role
+              <select className={s.input} value={form.role} onChange={e => set('role', e.target.value)}>
+                {roles.length > 0
+                  ? roles.map(r => <option key={r}>{r}</option>)
+                  : <option>{form.role}</option>
+                }
+              </select>
+            </label>
+          )}
           <label className={s.label}>Status
             <select className={s.input} value={form.status} onChange={e => set('status', e.target.value)}>
               {STATUSES.map(st => <option key={st}>{st}</option>)}
@@ -262,22 +299,34 @@ export default function UsersPage() {
                   <td className={s.tdJoined}>{u.joined}</td>
                   {userCan('canManageUsers') && (
                     <td>
-                      <div className={s.actions}>
-                        {canEdit(u) ? (
-                          <>
-                            <button className={s.iconBtn} title="Edit" onClick={() => setEdit(u)}>
-                              <Pencil size={13} />
+                      {/* Super Admin: inline role buttons — no modal needed */}
+                      {currentUser?.role === 'Super Admin' && u.role !== 'Super Admin' ? (
+                        <div className={s.actionsCell}>
+                          <RolePicker
+                            user={u}
+                            onAssign={(id, role) => updateUser(id, { role })}
+                            currentUser={currentUser}
+                          />
+                          {u.id !== currentUser?.id && (
+                            <button className={`${s.iconBtn} ${s.delBtn}`} title="Delete user" onClick={() => handleDelete(u.id)}>
+                              <Trash2 size={13} />
                             </button>
-                            {u.id !== currentUser?.id && (
-                              <button className={`${s.iconBtn} ${s.delBtn}`} title="Delete" onClick={() => handleDelete(u.id)}>
-                                <Trash2 size={13} />
-                              </button>
-                            )}
-                          </>
-                        ) : (
-                          <span className={s.noEdit}>—</span>
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      ) : canEdit(u) ? (
+                        <div className={s.actions}>
+                          <button className={s.iconBtn} title="Edit" onClick={() => setEdit(u)}>
+                            <Pencil size={13} />
+                          </button>
+                          {u.id !== currentUser?.id && (
+                            <button className={`${s.iconBtn} ${s.delBtn}`} title="Delete" onClick={() => handleDelete(u.id)}>
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className={s.noEdit}>—</span>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -291,7 +340,13 @@ export default function UsersPage() {
         <UserModal title="Add New User" onClose={() => setAdd(false)} onSave={addUser} currentUser={currentUser} />
       )}
       {editUser && (
-        <UserModal title="Edit User" user={editUser} onClose={() => setEdit(null)} onSave={u => updateUser(u.id, u)} currentUser={currentUser} />
+        <UserModal title="Edit User" user={editUser} onClose={() => setEdit(null)}
+          onSave={u => {
+            // Only pass the fields that can be changed — not id
+            const { id, ...fields } = u
+            updateUser(editUser.id, fields)
+          }}
+          currentUser={currentUser} />
       )}
     </div>
   )

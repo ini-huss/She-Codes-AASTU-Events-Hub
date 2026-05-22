@@ -37,7 +37,7 @@ export default function Sidebar() {
       <div className={s.brand}>
         <div className={s.brandIcon}><Zap size={15} /></div>
         <div>
-          <div className={s.brandName}>AASTU Admin</div>
+          <div className={s.brandName}>AASTU Events Hub</div>
           <div className={s.brandSub}>Central Management</div>
         </div>
       </div>
