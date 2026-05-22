@@ -15,9 +15,9 @@ if (missingEnvVars.length > 0) {
 }
 
 // Import routes
-const authRoutes = require("./src/routes/auth.routes");
-const eventRoutes = require("./src/routes/event.routes");
-const registrationRoutes = require("./src/routes/registration.routes");
+const authRoutes = require("./backend/src/routes/auth.routes");
+const eventRoutes = require("./backend/src/routes/event.routes");
+const registrationRoutes = require("./backend/src/routes/registration.routes");
 
 const app = express();
 
