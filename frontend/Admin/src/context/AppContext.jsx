@@ -54,34 +54,16 @@ export function AppProvider({ children }) {
   const [inboxes, setInboxesRaw]           = useState(() => load('aastu_inboxes', {}))
   const [activePage, setActivePage]        = useState('dashboard')
   const [currentUser, setCurrentUser]      = useState(() => {
-    // 1. Try the admin's own localStorage session first
     const saved = load('aastu_session', null)
-    if (saved) {
-      const accs = load('aastu_accounts', [])
-      const fresh = accs.find(a => a.id === saved.id)
-      if (fresh) {
-        const { passwordHash: _, ...safeUser } = fresh
-        save('aastu_session', safeUser)
-        return safeUser
-      }
-    }
-    // 2. Fall back to sessionStorage set by the unified auth page (5174/auth)
-    try {
-      const ssUser  = JSON.parse(sessionStorage.getItem('user') || 'null')
-      const ssToken = sessionStorage.getItem('token')
-      if (ssToken && ssUser && (ssUser.role || '').toLowerCase() === 'admin') {
-        // Synthesise a minimal admin record so the app renders correctly
-        return {
-          id:         ssUser.id || ssUser._id || Date.now(),
-          name:       ssUser.name,
-          email:      ssUser.email,
-          role:       'Admin',
-          department: ssUser.department || '',
-          avatar:     (ssUser.name || 'AD').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
-        }
-      }
-    } catch {}
-    return null
+    if (!saved) return null
+    // Always re-sync from accounts so promoted roles take effect immediately
+    const accs = load('aastu_accounts', [])
+    const fresh = accs.find(a => a.id === saved.id)
+    if (!fresh) return null
+    const { passwordHash: _, ...safeUser } = fresh
+    // Update the saved session with the latest role
+    save('aastu_session', safeUser)
+    return safeUser
   })
   const [authError, setAuthError]          = useState('')
   const [authLoading, setAuthLoading]      = useState(false)
