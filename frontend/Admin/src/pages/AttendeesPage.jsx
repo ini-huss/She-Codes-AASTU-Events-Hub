@@ -1,34 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Search, X } from 'lucide-react'
-import s from './UsersPage.module.css' // reuse existing table styles
-
-const REGISTRATIONS_KEY = 'aastu_student_registrations'
-const PUBLIC_KEY        = 'aastu_public_events'
-const CHECKINS_KEY      = 'aastu_admin_checkins'
-
-function loadRegistrations() {
-  try { return JSON.parse(localStorage.getItem(REGISTRATIONS_KEY) || '[]') } catch { return [] }
-}
-
-function loadEvents() {
-  try {
-    // Try admin events first (includes all statuses), fall back to public
-    const adminRaw = localStorage.getItem('aastu_events')
-    if (adminRaw) {
-      const all = JSON.parse(adminRaw)
-      return all.filter(e => e.status === 'Approved')
-    }
-    return JSON.parse(localStorage.getItem(PUBLIC_KEY) || '[]')
-  } catch { return [] }
-}
-
-function loadCheckins() {
-  try { return JSON.parse(localStorage.getItem(CHECKINS_KEY) || '{}') } catch { return {} }
-}
-
-function saveCheckins(checkins) {
-  try { localStorage.setItem(CHECKINS_KEY, JSON.stringify(checkins)) } catch {}
-}
+import s from './UsersPage.module.css'
+import api from '../api'
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -41,50 +14,69 @@ function formatDate(iso) {
 }
 
 export default function AttendeesPage() {
-  const [events, setEvents]             = useState(() => loadEvents())
-  const [registrations, setRegistrations] = useState(() => loadRegistrations())
-  const [checkins, setCheckins]         = useState(() => loadCheckins())
-  const [selectedEventId, setSelected]  = useState('')
-  const [search, setSearch]             = useState('')
+  const [events, setEvents]           = useState([])
+  const [attendees, setAttendees]     = useState([])
+  const [selectedEventId, setSelected] = useState('')
+  const [search, setSearch]           = useState('')
+  const [loadingEvts, setLoadingEvts] = useState(true)
+  const [loadingAtt, setLoadingAtt]   = useState(false)
+  const [checkingIn, setCheckingIn]   = useState(null)
+  const [error, setError]             = useState('')
 
-  // Reload when another tab writes to localStorage
+  // Load events on mount
   useEffect(() => {
-    function sync() {
-      setEvents(loadEvents())
-      setRegistrations(loadRegistrations())
-    }
-    window.addEventListener('storage', sync)
-    return () => window.removeEventListener('storage', sync)
+    api.get('/events')
+      .then(res => {
+        const raw = res.data.events || res.data || []
+        setEvents(raw)
+        setLoadingEvts(false)
+      })
+      .catch(() => setLoadingEvts(false))
   }, [])
 
-  const selectedEvent = events.find(e => String(e.id) === String(selectedEventId))
+  // Load attendees when event is selected
+  useEffect(() => {
+    if (!selectedEventId) { setAttendees([]); return }
+    setLoadingAtt(true)
+    setError('')
+    api.get(`/admin/attendees?eventId=${selectedEventId}`)
+      .then(res => {
+        setAttendees(res.data.attendees || res.data || [])
+        setLoadingAtt(false)
+      })
+      .catch(err => {
+        setError(err.response?.data?.message || 'Failed to load attendees.')
+        setLoadingAtt(false)
+      })
+  }, [selectedEventId])
 
-  // All registrations for the selected event (not cancelled)
-  const eventAttendees = useMemo(() => {
-    if (!selectedEventId) return []
-    return registrations.filter(
-      r => String(r.eventId) === String(selectedEventId) && r.status !== 'cancelled'
-    )
-  }, [registrations, selectedEventId])
+  const selectedEvent = events.find(e => String(e._id || e.id) === String(selectedEventId))
 
-  // Apply search filter
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return eventAttendees
-    return eventAttendees.filter(r =>
-      r.studentName?.toLowerCase().includes(q) ||
-      r.studentEmail?.toLowerCase().includes(q)
-    )
-  }, [eventAttendees, search])
+    if (!q) return attendees
+    return attendees.filter(r => {
+      const name  = r.user?.name  || ''
+      const email = r.user?.email || ''
+      return name.toLowerCase().includes(q) || email.toLowerCase().includes(q)
+    })
+  }, [attendees, search])
 
-  function toggleCheckin(registrationId) {
-    const key = String(registrationId)
-    const updated = { ...checkins, [key]: !checkins[key] }
-    setCheckins(updated)
-    saveCheckins(updated)
+  const checkedInCount = attendees.filter(r => r.checkedIn).length
+
+  async function handleCheckin(registrationId) {
+    setCheckingIn(registrationId)
+    try {
+      await api.put(`/admin/attendees/${registrationId}/checkin`)
+      setAttendees(prev => prev.map(r =>
+        (r._id || r.id) === registrationId ? { ...r, checkedIn: true } : r
+      ))
+    } catch (err) {
+      alert(err.response?.data?.message || 'Check-in failed.')
+    } finally {
+      setCheckingIn(null)
+    }
   }
-
-  const checkedInCount = eventAttendees.filter(r => checkins[String(r.id)]).length
 
   return (
     <div className={s.page}>
@@ -112,19 +104,22 @@ export default function AttendeesPage() {
           }}
         >
           <option value="">— Choose an event —</option>
-          {events.map(e => (
-            <option key={e.id} value={String(e.id)}>
-              {e.name} — {e.date}
-            </option>
-          ))}
+          {loadingEvts
+            ? <option disabled>Loading events…</option>
+            : events.map(e => (
+                <option key={e._id || e.id} value={String(e._id || e.id)}>
+                  {e.title || e.name} — {e.date ? new Date(e.date).toLocaleDateString() : '—'}
+                </option>
+              ))
+          }
         </select>
 
         {selectedEvent && (
           <div style={{ marginTop: 14, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
             {[
-              { label: 'Total Registered', value: eventAttendees.length,  color: 'var(--accent)' },
-              { label: 'Checked In',       value: checkedInCount,          color: 'var(--green)'  },
-              { label: 'Not Yet',          value: eventAttendees.length - checkedInCount, color: 'var(--t3)' },
+              { label: 'Total Registered', value: loadingAtt ? '…' : attendees.length, color: 'var(--accent)' },
+              { label: 'Checked In',       value: loadingAtt ? '…' : checkedInCount,   color: 'var(--green)'  },
+              { label: 'Not Yet',          value: loadingAtt ? '…' : attendees.length - checkedInCount, color: 'var(--t3)' },
             ].map(({ label, value, color }) => (
               <div key={label} style={{ textAlign: 'center', padding: '10px 20px', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border)' }}>
                 <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
@@ -135,10 +130,8 @@ export default function AttendeesPage() {
         )}
       </div>
 
-      {/* Only show table once an event is selected */}
       {selectedEventId && (
         <>
-          {/* Search */}
           <div className={s.toolbar}>
             <div className={s.searchBox}>
               <Search size={13} className={s.searchIcon} />
@@ -148,15 +141,10 @@ export default function AttendeesPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
               />
-              {search && (
-                <button className={s.clearX} onClick={() => setSearch('')}>
-                  <X size={12} />
-                </button>
-              )}
+              {search && <button className={s.clearX} onClick={() => setSearch('')}><X size={12} /></button>}
             </div>
           </div>
 
-          {/* Table */}
           <div className={`${s.tableCard} glass`}>
             <div className={s.tableWrap}>
               <table className={s.table}>
@@ -169,53 +157,52 @@ export default function AttendeesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.length === 0 ? (
+                  {loadingAtt ? (
+                    <tr><td colSpan={4} className={s.emptyRow}>Loading attendees…</td></tr>
+                  ) : error ? (
+                    <tr><td colSpan={4} className={s.emptyRow} style={{ color: 'var(--red)' }}>{error}</td></tr>
+                  ) : filtered.length === 0 ? (
                     <tr>
                       <td colSpan={4} className={s.emptyRow}>
-                        {eventAttendees.length === 0
-                          ? 'No attendees yet for this event.'
-                          : 'No attendees match your search.'}
+                        {attendees.length === 0 ? 'No attendees yet for this event.' : 'No attendees match your search.'}
                       </td>
                     </tr>
                   ) : filtered.map((r, i) => {
-                    const rid = String(r.id ?? i)
-                    const isChecked = !!checkins[rid]
+                    const rid       = r._id || r.id || i
+                    const name      = r.user?.name  || '—'
+                    const email     = r.user?.email || '—'
+                    const isChecked = !!r.checkedIn
+                    const isLoading = checkingIn === rid
                     return (
                       <tr key={rid}>
                         <td>
                           <div className={s.userCell}>
-                            <div
-                              className={s.avatar}
-                              style={{
-                                fontSize: 11,
-                                background: isChecked ? 'rgba(34,197,94,0.2)' : undefined,
-                                color:      isChecked ? '#22c55e'              : undefined,
-                              }}
-                            >
-                              {(r.studentName || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                            <div className={s.avatar} style={{
+                              fontSize: 11,
+                              background: isChecked ? 'rgba(34,197,94,0.2)' : undefined,
+                              color:      isChecked ? '#22c55e'              : undefined,
+                            }}>
+                              {name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
                             </div>
-                            <div className={s.userName}>{r.studentName || '—'}</div>
+                            <div className={s.userName}>{name}</div>
                           </div>
                         </td>
-                        <td className={s.tdEmail}>{r.studentEmail || '—'}</td>
-                        <td className={s.tdJoined}>{formatDate(r.registeredAt)}</td>
+                        <td className={s.tdEmail}>{email}</td>
+                        <td className={s.tdJoined}>{formatDate(r.createdAt || r.registeredAt)}</td>
                         <td style={{ textAlign: 'center' }}>
                           <button
-                            onClick={() => toggleCheckin(rid)}
+                            onClick={() => !isChecked && handleCheckin(rid)}
+                            disabled={isChecked || isLoading}
                             style={{
                               background:   isChecked ? 'rgba(34,197,94,0.15)' : 'var(--bg)',
                               color:        isChecked ? '#22c55e'               : 'var(--t3)',
                               border:       `1px solid ${isChecked ? '#22c55e44' : 'var(--border)'}`,
-                              borderRadius: 8,
-                              padding:      '5px 14px',
-                              fontSize:     12,
-                              fontWeight:   700,
-                              cursor:       'pointer',
-                              transition:   'all 0.2s',
-                              minWidth:     90,
+                              borderRadius: 8, padding: '5px 14px', fontSize: 12, fontWeight: 700,
+                              cursor:       isChecked ? 'default' : 'pointer',
+                              transition:   'all 0.2s', minWidth: 90,
                             }}
                           >
-                            {isChecked ? '✓ Checked In' : 'Check In'}
+                            {isLoading ? '…' : isChecked ? '✓ Checked In' : 'Check In'}
                           </button>
                         </td>
                       </tr>
@@ -228,12 +215,11 @@ export default function AttendeesPage() {
         </>
       )}
 
-      {/* Prompt when nothing selected */}
       {!selectedEventId && (
         <div className={`${s.tableCard} glass`} style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--t3)' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>🎟️</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--t1)', marginBottom: 6 }}>Select an event above</div>
-          <div style={{ fontSize: 13 }}>Choose an approved event to see its registered attendees and manage check-ins.</div>
+          <div style={{ fontSize: 13 }}>Choose an event to see its registered attendees and manage check-ins.</div>
         </div>
       )}
     </div>

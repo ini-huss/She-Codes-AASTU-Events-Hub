@@ -1,97 +1,105 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
-import { initialEvents, initialUsers, initialSuggestions, notifications as initNotifs } from '../data/store'
+import { initialSuggestions, notifications as initNotifs } from '../data/store'
 import { T } from '../data/translations'
 import { can, ROLE_LEVEL, assignableRoles } from '../data/roles'
-import { hashPassword, verifyPassword } from '../utils/crypto'
 import { writeAuditEntry, AUDIT, severityOf } from '../utils/auditLog'
-import { syncPublicEvents, onRegistrationsChange, getRegistrationCountForEvent } from '../utils/studentBridge'
 import api from '../api'
 
 const AppContext = createContext(null)
 
-// ── localStorage helpers ──────────────────────────────────────────────────────
+// ── localStorage helpers (kept for UI preferences only) ──────────────────────
 function load(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : fallback
-  } catch { return fallback }
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback }
+  catch { return fallback }
 }
 function save(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch {}
-}
-
-// ── Seed Super Admin ──────────────────────────────────────────────────────────
-// Password is stored as SHA-256 hash — never plain text
-
-async function buildSeedAdmin() {
-  // Compute real hash on first run
-  const hash = await hashPassword('admin123')
-  return {
-    id: 1,
-    email: 'admin@aastu.edu.et',
-    passwordHash: hash,
-    name: 'AASTU Super Admin',
-    role: 'Super Admin',
-    department: 'IT & Systems Department',
-    avatar: 'SA',
-  }
-}
-
-function loadAccounts() {
-  return load('aastu_accounts', null)
 }
 
 function makeNotif(text) {
   return { id: Date.now() + Math.random(), text, time: 'Just now', read: false }
 }
 
+// ── Normalise a backend event to the shape the UI expects ─────────────────────
+function normaliseEvent(e) {
+  return {
+    ...e,
+    id:           e._id || e.id,
+    name:         e.title || e.name,
+    venue:        e.location || e.venue,
+    registrations: e.registeredCount || e.registrations || 0,
+    // Map backend status to UI status
+    status: (() => {
+      const s = (e.status || '').toLowerCase()
+      if (s === 'published') return 'Approved'
+      if (s === 'draft')     return 'Pending'
+      if (s === 'cancelled') return 'Rejected'
+      // Already in UI format
+      if (['Approved','Pending','Rejected'].includes(e.status)) return e.status
+      return 'Pending'
+    })(),
+  }
+}
+
+// ── Normalise a backend user to the shape the UI expects ─────────────────────
+function normaliseUser(u) {
+  return {
+    ...u,
+    id:         u._id || u.id,
+    role:       u.role === 'admin' ? 'Admin' : u.role === 'user' ? 'Viewer' : (u.role || 'Viewer'),
+    status:     u.isActive === false ? 'Inactive' : 'Active',
+    department: u.department || '',
+    joined:     u.createdAt
+      ? new Date(u.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+      : '—',
+    avatar:     u.name ? u.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() : 'U',
+  }
+}
+
 export function AppProvider({ children }) {
-  const [accounts, setAccountsRaw]         = useState(() => loadAccounts() || [])
-  const [events, setEventsRaw]             = useState(() => load('aastu_events', initialEvents))
-  const [users, setUsersRaw]               = useState(() => load('aastu_users', initialUsers))
-  const [suggestions, setSuggestionsRaw]   = useState(() => load('aastu_suggestions', initialSuggestions))
-  const [notifications, setNotifsRaw]      = useState(() => load('aastu_notifs', initNotifs))
-  const [inboxes, setInboxesRaw]           = useState(() => load('aastu_inboxes', {}))
-  const [activePage, setActivePage]        = useState('dashboard')
-  const [currentUser, setCurrentUser]      = useState(() => {
-    const saved = load('aastu_session', null)
-    if (!saved) return null
-    // Always re-sync from accounts so promoted roles take effect immediately
-    const accs = load('aastu_accounts', [])
-    const fresh = accs.find(a => a.id === saved.id)
-    if (!fresh) return null
-    const { passwordHash: _, ...safeUser } = fresh
-    // Update the saved session with the latest role
-    save('aastu_session', safeUser)
-    return safeUser
+  const [events, setEventsRaw]           = useState([])
+  const [users, setUsersRaw]             = useState([])
+  const [suggestions, setSuggestionsRaw] = useState(() => load('aastu_suggestions', initialSuggestions))
+  const [notifications, setNotifsRaw]    = useState(() => load('aastu_notifs', initNotifs))
+  const [inboxes, setInboxesRaw]         = useState(() => load('aastu_inboxes', {}))
+  const [activePage, setActivePage]      = useState('dashboard')
+  const [currentUser, setCurrentUser]    = useState(() => {
+    try {
+      const u = JSON.parse(sessionStorage.getItem('user') || 'null')
+      const t = sessionStorage.getItem('token')
+      if (u && t && (u.role || '').toLowerCase() === 'admin') return normaliseUser(u)
+    } catch {}
+    return null
   })
-  const [authError, setAuthError]          = useState('')
-  const [authLoading, setAuthLoading]      = useState(false)
+  const [authError, setAuthError]        = useState('')
+  const [authLoading, setAuthLoading]    = useState(false)
   const [accentColor, setAccentColorState] = useState(() => load('aastu_accent', '#7c5cbf'))
-  const [language, setLanguageState]       = useState(() => load('aastu_lang', 'English'))
-  const [ready, setReady]                  = useState(false)
+  const [language, setLanguageState]     = useState(() => load('aastu_lang', 'English'))
 
-  // ── On first load: seed the Super Admin if no accounts exist ─────────────
+  // ── Load events from backend on mount ────────────────────────────────────
   useEffect(() => {
-    async function init() {
-      const stored = loadAccounts()
-      if (!stored || stored.length === 0) {
-        const seed = await buildSeedAdmin()
-        setAccountsRaw([seed])
-        save('aastu_accounts', [seed])
-      }
-      setReady(true)
-    }
-    init()
-  }, [])
+    if (!currentUser) return
+    api.get('/events').then(res => {
+      const raw = res.data.events || res.data || []
+      setEventsRaw(raw.map(normaliseEvent))
+    }).catch(() => {})
+  }, [currentUser])
 
-  // ── Persist helpers ───────────────────────────────────────────────────────
-  function setAccounts(val) { setAccountsRaw(val); save('aastu_accounts', val) }
-  function setEvents(fn)    { setEventsRaw(prev  => { const n = typeof fn === 'function' ? fn(prev)  : fn; save('aastu_events',      n); return n }) }
-  function setUsers(fn)     { setUsersRaw(prev   => { const n = typeof fn === 'function' ? fn(prev)  : fn; save('aastu_users',       n); return n }) }
-  function setSuggestions(fn){ setSuggestionsRaw(prev => { const n = typeof fn === 'function' ? fn(prev) : fn; save('aastu_suggestions', n); return n }) }
-  function setNotifs(fn)    { setNotifsRaw(prev  => { const n = typeof fn === 'function' ? fn(prev)  : fn; save('aastu_notifs',      n); return n }) }
-  function setInboxes(fn)   { setInboxesRaw(prev => { const n = typeof fn === 'function' ? fn(prev)  : fn; save('aastu_inboxes',     n); return n }) }
+  // ── Load users from backend on mount ─────────────────────────────────────
+  useEffect(() => {
+    if (!currentUser) return
+    api.get('/admin/users').then(res => {
+      const raw = res.data.users || res.data || []
+      setUsersRaw(raw.map(normaliseUser))
+    }).catch(() => {})
+  }, [currentUser])
+
+  // ── Persist helpers (UI prefs only) ──────────────────────────────────────
+  function setEvents(fn) { setEventsRaw(prev => typeof fn === 'function' ? fn(prev) : fn) }
+  function setUsers(fn)  { setUsersRaw(prev  => typeof fn === 'function' ? fn(prev) : fn) }
+  function setSuggestions(fn) { setSuggestionsRaw(prev => { const n = typeof fn === 'function' ? fn(prev) : fn; save('aastu_suggestions', n); return n }) }
+  function setNotifs(fn) { setNotifsRaw(prev => { const n = typeof fn === 'function' ? fn(prev) : fn; save('aastu_notifs', n); return n }) }
+  function setInboxes(fn){ setInboxesRaw(prev => { const n = typeof fn === 'function' ? fn(prev) : fn; save('aastu_inboxes', n); return n }) }
 
   // ── Apply accent color ────────────────────────────────────────────────────
   useEffect(() => {
@@ -109,34 +117,6 @@ export function AppProvider({ children }) {
 
   useEffect(() => { save('aastu_lang', language) }, [language])
 
-  // ── Sync student registration counts back into events ─────────────────────
-  useEffect(() => {
-    function syncCounts() {
-      setEvents(prev => {
-        const updated = prev.map(e => {
-          const liveCount = getRegistrationCountForEvent(e.id)
-          // Only update if the student count is higher (students may have registered)
-          if (liveCount > (e.registrations || 0)) {
-            return { ...e, registrations: liveCount }
-          }
-          return e
-        })
-        // Only save if something actually changed
-        const changed = updated.some((e, i) => e.registrations !== prev[i].registrations)
-        if (changed) {
-          save('aastu_events', updated)
-          syncPublicEvents(updated)
-        }
-        return changed ? updated : prev
-      })
-    }
-    // Sync on mount
-    syncCounts()
-    // Listen for live changes from the student tab
-    const unsub = onRegistrationsChange(() => syncCounts())
-    return unsub
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   const t = (key) => T[language]?.[key] ?? T['English'][key] ?? key
 
   // ── Audit log helper ──────────────────────────────────────────────────────
@@ -150,9 +130,7 @@ export function AppProvider({ children }) {
     })
   }
 
-  function pushNotif(text) {
-    setNotifs(prev => [makeNotif(text), ...prev])
-  }
+  function pushNotif(text) { setNotifs(prev => [makeNotif(text), ...prev]) }
 
   function pushInbox(userId, text, type = 'info') {
     setInboxes(prev => ({
@@ -171,37 +149,32 @@ export function AppProvider({ children }) {
     }))
   }
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
+  // ── Auth — real backend calls ─────────────────────────────────────────────
   async function login(email, password) {
     setAuthLoading(true)
     setAuthError('')
     try {
-      // Reload accounts fresh from storage each time
-      const freshAccounts = load('aastu_accounts', [])
-      const found = freshAccounts.find(a => a.email.toLowerCase() === email.toLowerCase())
-      if (!found) {
-        setAuthError('Invalid email or password.')
+      const { data } = await api.post('/auth/login', { email, password })
+      const role = (data.user?.role || '').toLowerCase()
+      if (role !== 'admin') {
+        setAuthError('Access denied. Admin accounts only.')
         return false
       }
-      const match = await verifyPassword(password, found.passwordHash)
-      if (!match) {
-        setAuthError('Invalid email or password.')
-        return false
-      }
-      // Always use the latest role from accounts (in case it was promoted while logged out)
-      const { passwordHash: _, ...safeUser } = found
+      sessionStorage.setItem('token', data.token)
+      sessionStorage.setItem('user', JSON.stringify(data.user))
+      const safeUser = normaliseUser(data.user)
       setCurrentUser(safeUser)
-      save('aastu_session', safeUser)
-      setAccountsRaw(freshAccounts)
-      // Audit: record every login
       writeAuditEntry({
         action:   AUDIT.LOGIN,
         severity: severityOf(AUDIT.LOGIN),
-        actor:    `${found.name} (${found.role})`,
-        actorId:  found.id,
-        detail:   `Logged in from ${navigator.userAgent.split(')')[0].split('(')[1] || 'unknown device'}`,
+        actor:    `${safeUser.name} (${safeUser.role})`,
+        actorId:  safeUser.id,
+        detail:   'Logged in via backend API',
       })
       return true
+    } catch (err) {
+      setAuthError(err.response?.data?.message || 'Invalid email or password.')
+      return false
     } finally {
       setAuthLoading(false)
     }
@@ -211,52 +184,22 @@ export function AppProvider({ children }) {
     setAuthLoading(true)
     setAuthError('')
     try {
-      const freshAccounts = load('aastu_accounts', [])
-      const exists = freshAccounts.find(a => a.email.toLowerCase() === email.toLowerCase())
-      if (exists) {
-        setAuthError('An account with this email already exists.')
-        return false
-      }
-      const passwordHash = await hashPassword(password)
-      const newUser = {
-        id: Date.now(),
-        email,
-        passwordHash,   // stored as hash, never plain text
-        name,
-        role: 'Viewer',
-        department: department || 'Unassigned',
-        avatar: name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
-      }
-      const newAccounts = [...freshAccounts, newUser]
-      setAccounts(newAccounts)
-
-      const userRecord = {
-        id: newUser.id, name, email,
-        role: 'Viewer',
-        department: newUser.department,
-        status: 'Active',
-        joined: new Date().toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
-        avatar: newUser.avatar,
-      }
-      setUsers(prev => [...prev, userRecord])
-
-      pushNotif(`New user "${name}" registered from ${newUser.department}. Go to Users to assign their role.`)
-      pushInbox(newUser.id,
-        `Welcome to AASTU Events Hub, ${name}! Your account is active with Viewer access. A Super Admin will review and assign your role soon.`,
-        'welcome'
-      )
-
-      const { passwordHash: _, ...safeUser } = newUser
+      const { data } = await api.post('/auth/register', { name, email, password, role: 'admin', department })
+      sessionStorage.setItem('token', data.token)
+      sessionStorage.setItem('user', JSON.stringify(data.user))
+      const safeUser = normaliseUser(data.user)
       setCurrentUser(safeUser)
-      save('aastu_session', safeUser)
       writeAuditEntry({
         action:   AUDIT.SIGNUP,
         severity: severityOf(AUDIT.SIGNUP),
-        actor:    `${name} (Viewer)`,
-        actorId:  newUser.id,
-        detail:   `New account registered. Department: ${newUser.department}`,
+        actor:    `${safeUser.name} (${safeUser.role})`,
+        actorId:  safeUser.id,
+        detail:   `New admin account registered. Department: ${department}`,
       })
       return true
+    } catch (err) {
+      setAuthError(err.response?.data?.message || 'Registration failed.')
+      return false
     } finally {
       setAuthLoading(false)
     }
@@ -265,7 +208,6 @@ export function AppProvider({ children }) {
   function logout() {
     audit(AUDIT.LOGOUT, { detail: 'User logged out' })
     setCurrentUser(null)
-    save('aastu_session', null)
     sessionStorage.removeItem('token')
     sessionStorage.removeItem('user')
     setActivePage('dashboard')
@@ -273,138 +215,95 @@ export function AppProvider({ children }) {
 
   const userCan = (permission) => can(currentUser, permission)
 
-  // ── Suggestion actions (for Viewers/faculty) ─────────────────────────────
+  // ── Suggestion actions ────────────────────────────────────────────────────
   function submitSuggestion(suggestion) {
     const newSug = {
-      ...suggestion,
-      id:            Date.now(),
-      status:        'Pending',   // Pending | Converted | Declined
-      submittedBy:   currentUser.name,
-      submittedEmail: currentUser.email,
-      submittedAt:   new Date().toLocaleString(),
-      adminNote:     '',
+      ...suggestion, id: Date.now(), status: 'Pending',
+      submittedBy: currentUser.name, submittedEmail: currentUser.email,
+      submittedAt: new Date().toLocaleString(), adminNote: '',
     }
     setSuggestions(prev => [newSug, ...prev])
-    pushNotif(`📋 New event suggestion "${suggestion.name}" from ${currentUser.name} (${currentUser.department}).`)
-    pushInbox(currentUser.id,
-      `✅ Your suggestion "${suggestion.name}" has been submitted. An Admin will review it and may convert it into a real event.`,
-      'info'
-    )
+    pushNotif(`📋 New event suggestion "${suggestion.name}" from ${currentUser.name}.`)
   }
 
   function convertSuggestion(id, extraFields) {
-    // Admin converts a suggestion into a real pending event
     if (!userCan('canCreateEvents')) return
     const sug = suggestions.find(s => s.id === id)
     if (!sug) return
     setSuggestions(prev => prev.map(s => s.id === id ? { ...s, status: 'Converted' } : s))
-    const newEvent = {
-      ...sug, ...extraFields,
-      id:             Date.now(),
-      status:         'Pending',
-      organizerEmail: sug.submittedEmail,
-      submittedAt:    new Date().toLocaleString(),
-    }
-    setEvents(prev => {
-      const next = [newEvent, ...prev]
-      syncPublicEvents(next)
-      return next
-    })
+    const newEvent = { ...sug, ...extraFields, id: Date.now(), status: 'Pending', organizerEmail: sug.submittedEmail, submittedAt: new Date().toLocaleString() }
+    setEvents(prev => [newEvent, ...prev])
     pushNotif(`Event "${sug.name}" converted from suggestion by ${currentUser.name}.`)
-    // Notify the suggester
-    const acc = load('aastu_accounts', []).find(a => a.email === sug.submittedEmail)
-    if (acc) {
-      pushInbox(acc.id,
-        `🎉 Your suggestion "${sug.name}" has been accepted and converted into a real event by ${currentUser.name}. It is now pending final approval.`,
-        'approved'
-      )
-    }
   }
 
   function declineSuggestion(id, reason) {
     if (!userCan('canManageUsers') && !userCan('canApproveEvents')) return
-    const sug = suggestions.find(s => s.id === id)
-    if (!sug) return
     setSuggestions(prev => prev.map(s => s.id === id ? { ...s, status: 'Declined', adminNote: reason } : s))
-    const acc = load('aastu_accounts', []).find(a => a.email === sug.submittedEmail)
-    if (acc) {
-      pushInbox(acc.id,
-        `❌ Your suggestion "${sug.name}" was declined by ${currentUser.name}. Reason: "${reason || 'No reason provided'}".`,
-        'rejected'
-      )
-    }
   }
 
-  // ── Event actions ─────────────────────────────────────────────────────────
-  function approveEvent(id) {
+  // ── Event actions — real API calls ────────────────────────────────────────
+  async function approveEvent(id) {
     if (!userCan('canApproveEvents')) return
     const evt = events.find(e => e.id === id)
-    setEvents(prev => {
-      const next = prev.map(e => e.id === id ? { ...e, status: 'Approved', feedback: '' } : e)
-      syncPublicEvents(next)   // ← push to student platform bridge
-      return next
-    })
-    if (evt) {
-      audit(AUDIT.EVENT_APPROVED, { detail: `Approved event: "${evt.name}" (organizer: ${evt.organizer})`, eventId: id })
-      pushNotif(`"${evt.name}" approved by ${currentUser.name}.`)
-      const freshAccounts = load('aastu_accounts', [])
-      const organizer = freshAccounts.find(a => a.email === evt.organizerEmail)
-      if (organizer) {
-        pushInbox(organizer.id,
-          `✅ Your event "${evt.name}" has been APPROVED by ${currentUser.name}. It is now live and visible to students.`,
-          'approved'
-        )
-      }
+    try {
+      await api.put(`/events/${id}`, { status: 'published' })
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, status: 'Approved' } : e))
+      audit(AUDIT.EVENT_APPROVED, { detail: `Approved event: "${evt?.name}"`, eventId: id })
+      pushNotif(`"${evt?.name}" approved by ${currentUser.name}.`)
+    } catch (err) {
+      pushNotif(`❌ Failed to approve "${evt?.name}": ${err.response?.data?.message || 'Server error'}`)
     }
   }
 
-  function rejectEvent(id, feedback) {
+  async function rejectEvent(id, feedback) {
     if (!userCan('canRejectEvents')) return
     const evt = events.find(e => e.id === id)
-    setEvents(prev => {
-      const next = prev.map(e => e.id === id ? { ...e, status: 'Rejected', feedback } : e)
-      syncPublicEvents(next)
-      return next
-    })
-    if (evt) {
-      audit(AUDIT.EVENT_REJECTED, { detail: `Rejected event: "${evt.name}". Reason: "${feedback || 'none'}"`, eventId: id })
-      pushNotif(`"${evt.name}" rejected by ${currentUser.name}.`)
-      const freshAccounts = load('aastu_accounts', [])
-      const organizer = freshAccounts.find(a => a.email === evt.organizerEmail)
-      if (organizer) {
-        pushInbox(organizer.id,
-          `❌ Your event "${evt.name}" was REJECTED by ${currentUser.name}. Reason: "${feedback || 'No reason provided'}". You may edit and resubmit.`,
-          'rejected'
-        )
-      }
+    try {
+      await api.put(`/events/${id}`, { status: 'cancelled' })
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, status: 'Rejected', feedback } : e))
+      audit(AUDIT.EVENT_REJECTED, { detail: `Rejected event: "${evt?.name}". Reason: "${feedback || 'none'}"`, eventId: id })
+      pushNotif(`"${evt?.name}" rejected by ${currentUser.name}.`)
+    } catch (err) {
+      pushNotif(`❌ Failed to reject "${evt?.name}": ${err.response?.data?.message || 'Server error'}`)
     }
   }
 
-  function deleteEvent(id) {
+  async function deleteEvent(id) {
     if (!userCan('canDeleteEvents')) return
     const evt = events.find(e => e.id === id)
-    audit(AUDIT.EVENT_DELETED, { detail: `Deleted event: "${evt?.name}"`, eventId: id })
-    setEvents(prev => {
-      const next = prev.filter(e => e.id !== id)
-      syncPublicEvents(next)
-      return next
-    })
+    try {
+      await api.delete(`/events/${id}`)
+      setEvents(prev => prev.filter(e => e.id !== id))
+      audit(AUDIT.EVENT_DELETED, { detail: `Deleted event: "${evt?.name}"`, eventId: id })
+    } catch (err) {
+      pushNotif(`❌ Failed to delete "${evt?.name}": ${err.response?.data?.message || 'Server error'}`)
+    }
   }
 
-  function updateEvent(id, fields) {
+  async function updateEvent(id, fields) {
     if (!userCan('canEditEvents')) return
     const evt = events.find(e => e.id === id)
-    audit(AUDIT.EVENT_EDITED, { detail: `Edited event: "${evt?.name}"`, eventId: id })
-    setEvents(prev => {
-      const next = prev.map(e => e.id === id ? { ...e, ...fields } : e)
-      syncPublicEvents(next)
-      return next
-    })
+    const payload = {
+      title:       fields.name  || fields.title,
+      description: fields.description,
+      date:        fields.date,
+      location:    fields.venue || fields.location,
+      capacity:    fields.capacity,
+      category:    fields.category?.toLowerCase(),
+      price:       fields.price || 0,
+      organizer:   fields.organizer,
+    }
+    try {
+      const { data } = await api.put(`/events/${id}`, payload)
+      setEvents(prev => prev.map(e => e.id === id ? normaliseEvent(data.event || { ...e, ...fields }) : e))
+      audit(AUDIT.EVENT_EDITED, { detail: `Edited event: "${evt?.name}"`, eventId: id })
+    } catch (err) {
+      pushNotif(`❌ Failed to update "${evt?.name}": ${err.response?.data?.message || 'Server error'}`)
+    }
   }
 
-  function addEvent(event) {
+  async function addEvent(event) {
     if (!userCan('canCreateEvents')) return
-    // Map admin form fields to backend schema
     const payload = {
       title:       event.name,
       description: event.description || 'No description provided.',
@@ -416,52 +315,27 @@ export function AppProvider({ children }) {
       organizer:   event.organizer,
       status:      'published',
     }
-    // Call backend API (fire-and-forget — also keep local state in sync)
-    api.post('/events', payload).catch(() => {})
-
-    const newEvent = {
-      ...event,
-      id: Date.now(),
-      organizerEmail: currentUser.email,
-      submittedAt: new Date().toLocaleString(),
+    try {
+      const { data } = await api.post('/events', payload)
+      const newEvent = normaliseEvent(data.event || { ...payload, _id: Date.now() })
+      setEvents(prev => [newEvent, ...prev])
+      audit(AUDIT.EVENT_CREATED, { detail: `Created event: "${event.name}" (${event.category}, ${event.date})` })
+      pushNotif(`New event "${event.name}" created by ${currentUser.name}.`)
+    } catch (err) {
+      pushNotif(`❌ Failed to create "${event.name}": ${err.response?.data?.message || 'Server error'}`)
     }
-    audit(AUDIT.EVENT_CREATED, { detail: `Created event: "${event.name}" (${event.category}, ${event.date})` })
-    setEvents(prev => {
-      const next = [newEvent, ...prev]
-      syncPublicEvents(next)
-      return next
-    })
-    pushNotif(
-      `New event "${event.name}" submitted by ${currentUser.name} — pending review.`
-      + (event.urgent ? ' ⚠️ Marked URGENT.' : '')
-    )
   }
 
-  // ── User actions ──────────────────────────────────────────────────────────
+  // ── User actions — real API calls ─────────────────────────────────────────
   function addUser(user) {
+    // Admin panel user creation is informational only — no backend endpoint for creating users
     if (!userCan('canManageUsers')) return
-    const newU = { ...user, id: Date.now() }
+    const newU = { ...user, id: Date.now(), avatar: user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() }
     audit(AUDIT.USER_ADDED, { detail: `Added user: "${user.name}" as ${user.role} (${user.department})` })
     setUsers(prev => [newU, ...prev])
-    // Also add a stub account so the user appears in accounts list
-    // (no passwordHash — they must sign up themselves to set a password)
-    const freshAccounts = load('aastu_accounts', [])
-    const alreadyExists = freshAccounts.find(a => a.email?.toLowerCase() === user.email?.toLowerCase())
-    if (!alreadyExists) {
-      const stubAccount = {
-        id: newU.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        department: user.department || 'Unassigned',
-        avatar: newU.avatar || user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
-        passwordHash: null, // no password — user must sign up to set one
-      }
-      setAccounts([...freshAccounts, stubAccount])
-    }
   }
 
-  function deleteUser(id) {
+  async function deleteUser(id) {
     if (!userCan('canManageUsers')) return
     const target = users.find(u => u.id === id)
     if (target && ROLE_LEVEL[target.role] >= ROLE_LEVEL[currentUser.role]) return
@@ -469,55 +343,34 @@ export function AppProvider({ children }) {
     setUsers(prev => prev.filter(u => u.id !== id))
   }
 
-  function updateUser(id, fields) {
+  async function updateUser(id, fields) {
     if (!userCan('canManageUsers')) return
-
-    // Only enforce role restriction if the role is actually changing
     const target = users.find(u => u.id === id)
     if (fields.role && target && fields.role !== target.role) {
       const allowed = assignableRoles(currentUser)
       if (!allowed.includes(fields.role)) return
     }
     if (fields.role && target) {
-      audit(AUDIT.ROLE_CHANGED, {
-        detail: `Changed "${target.name}" role from "${target.role}" → "${fields.role}"`,
-        targetId: id,
-      })
+      audit(AUDIT.ROLE_CHANGED, { detail: `Changed "${target.name}" role from "${target.role}" → "${fields.role}"`, targetId: id })
+      // Map UI role to backend role
+      const backendRole = fields.role === 'Admin' ? 'admin' : 'user'
+      try {
+        await api.put(`/admin/users/${id}/role`, { role: backendRole })
+      } catch {}
     }
-
-    // 1. Update users list in state + localStorage
+    if (fields.status !== undefined) {
+      try {
+        await api.put(`/admin/users/${id}/toggle-status`)
+      } catch {}
+    }
     setUsers(prev => prev.map(u => u.id === id ? { ...u, ...fields } : u))
-
-    // 2. Update accounts array — read fresh from localStorage to avoid stale state
-    const freshAccounts = load('aastu_accounts', [])
-    const newAccounts = freshAccounts.map(a => a.id === id ? { ...a, ...fields } : a)
-    setAccounts(newAccounts)
-
-    // 3. If the promoted user is currently logged in — update their session immediately
-    if (currentUser && currentUser.id === id) {
-      const updated = { ...currentUser, ...fields }
-      setCurrentUser(updated)
-      save('aastu_session', updated)
-    } else {
-      // Update their saved session so next login picks up the new role
-      const savedSession = load('aastu_session', null)
-      if (savedSession && savedSession.id === id) {
-        save('aastu_session', { ...savedSession, ...fields })
-      }
-    }
-
     if (fields.role && target) {
       pushNotif(`${target.name}'s role updated to "${fields.role}" by ${currentUser.name}.`)
-      pushInbox(id,
-        `🔑 Your role has been updated to "${fields.role}" by ${currentUser.name}. Your new permissions are active immediately.`,
-        'role_change'
-      )
+      pushInbox(id, `🔑 Your role has been updated to "${fields.role}" by ${currentUser.name}.`, 'role_change')
     }
   }
 
-  function markAllRead() {
-    setNotifs(prev => prev.map(n => ({ ...n, read: true })))
-  }
+  function markAllRead() { setNotifs(prev => prev.map(n => ({ ...n, read: true }))) }
 
   // ── Derived ───────────────────────────────────────────────────────────────
   const totalRegistrations = events.reduce((s, e) => s + (e.registrations || 0), 0)
@@ -526,9 +379,6 @@ export function AppProvider({ children }) {
   const unreadCount        = notifications.filter(n => !n.read).length
   const myInbox            = currentUser ? (inboxes[currentUser.id] || []) : []
   const myUnreadInbox      = myInbox.filter(m => !m.read).length
-
-  if (!ready) return null  // wait for seed admin to be hashed before rendering
-
   const pendingSuggestions = suggestions.filter(s => s.status === 'Pending')
 
   return (

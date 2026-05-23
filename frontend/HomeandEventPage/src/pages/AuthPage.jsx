@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { COLORS } from '../components/constants'
 import api from '../api'
 import { saveSession, getSession } from '../App'
+import { ADMIN_URL } from '../config'
 
 export default function AuthPage() {
   const navigate    = useNavigate()
@@ -43,7 +44,7 @@ export default function AuthPage() {
         saveSession(data.token, data.user)
         const r = (data.user?.role || '').toLowerCase()
         if (r === 'admin') {
-          window.location.href = 'http://localhost:5173'
+          window.location.href = ADMIN_URL
         } else {
           navigate('/home', { replace: true })
         }
@@ -168,7 +169,7 @@ export default function AuthPage() {
         {/* Link to admin panel */}
         <div style={{ textAlign: 'center', marginTop: 16, paddingTop: 16, borderTop: `1px solid ${COLORS.border}` }}>
           <span style={{ fontSize: 12, color: COLORS.textMuted }}>Are you an admin? </span>
-          <button onClick={() => window.open('http://localhost:5173', '_blank')} style={{ background: 'none', border: 'none', color: COLORS.accentLight, cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
+          <button onClick={() => window.open(ADMIN_URL, '_blank')} style={{ background: 'none', border: 'none', color: COLORS.accentLight, cursor: 'pointer', fontWeight: 600, fontSize: 12 }}>
             Go to Admin Panel →
           </button>
         </div>
