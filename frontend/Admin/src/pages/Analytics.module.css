@@ -1,0 +1,103 @@
+.page { display: flex; flex-direction: column; gap: 24px; }
+.header { display: flex; flex-direction: column; gap: 4px; }
+.title  { font-size: 30px; font-weight: 800; color: var(--t1); }
+.sub    { font-size: 13px; color: var(--t2); }
+
+.banner {
+  border-radius: var(--r16); padding: 24px 28px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 20px; flex-wrap: wrap;
+  border-color: var(--accent);
+}
+.bannerLeft  { display: flex; align-items: center; gap: 16px; }
+.bannerIcon  { color: var(--accent); filter: drop-shadow(0 0 8px var(--accent)); }
+.growthNum   { font-size: 42px; font-weight: 800; color: var(--accent); line-height: 1; }
+.growthLabel { font-size: 13px; color: var(--t2); margin-top: 4px; }
+.bannerStats { display: flex; flex-direction: column; gap: 8px; }
+.bStat       { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--t2); }
+.bStat svg   { color: var(--accent); }
+
+.chartsRow {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+}
+
+.chartCard { border-radius: var(--r16); padding: 22px 24px; position: relative; }
+.chartTitle { font-size: 15px; font-weight: 700; color: var(--t1); margin-bottom: 2px; }
+.chartSub   { font-size: 11px; color: var(--t3); margin-bottom: 14px; }
+
+.donutCenter {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -10%);
+  text-align: center; pointer-events: none;
+}
+.donutNum   { font-size: 22px; font-weight: 800; color: var(--accent); }
+.donutLabel { font-size: 10px; color: var(--t2); font-weight: 600; }
+
+.tip {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--r8); padding: 10px 14px; font-size: 12px;
+}
+.tipLabel { color: var(--t2); font-weight: 600; margin-bottom: 4px; }
+
+.bottomRow {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 16px;
+}
+
+.logCard   { border-radius: var(--r16); padding: 22px 24px; }
+.tableWrap { overflow-x: auto; margin-top: 14px; }
+
+.table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.table thead tr { border-bottom: 1px solid var(--border); }
+.table th {
+  text-align: left; padding: 0 10px 10px;
+  font-size: 10px; font-weight: 700; color: var(--t3);
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.table td { padding: 11px 10px; border-bottom: 1px solid var(--border); }
+.table tbody tr:last-child td { border-bottom: none; }
+.table tbody tr:hover td { background: var(--accent-dim); }
+
+.tdStudent { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.tdAction  { color: var(--t2); }
+.tdEvent   { color: var(--t1); font-weight: 500; }
+.tdTime    { color: var(--t3); white-space: nowrap; }
+
+.alertCard {
+  border-radius: var(--r16); padding: 22px 24px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.alerts { display: flex; flex-direction: column; gap: 10px; }
+.alertItem {
+  background: var(--bg3); border: 1px solid var(--accent-dim);
+  border-radius: var(--r12); padding: 14px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.alertWindow {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; font-weight: 700; color: var(--accent);
+}
+.alertIcon   { flex-shrink: 0; }
+.alertReason { font-size: 11px; color: var(--t2); line-height: 1.5; }
+
+.emptyChart {
+  height: 230px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px;
+  color: var(--t3);
+}
+.emptyChartIcon { font-size: 32px; opacity: .4; }
+.emptyChartText { font-size: 12px; text-align: center; max-width: 220px; line-height: 1.5; }
+
+.emptyLog {
+  padding: 32px 16px; text-align: center;
+  font-size: 12px; color: var(--t3); line-height: 1.6;
+}
+
+@media (max-width: 1100px) {
+  .chartsRow { grid-template-columns: 1fr; }
+  .bottomRow { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) { .title { font-size: 24px; } }

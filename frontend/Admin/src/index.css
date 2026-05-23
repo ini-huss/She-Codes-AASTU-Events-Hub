@@ -1,0 +1,76 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  /* ── Original dark navy/purple theme ── */
+  --bg:          #0d1117;
+  --bg2:         #161b27;
+  --bg3:         #1e2535;
+  --glass:       rgba(22,27,39,0.85);
+  --border:      rgba(255,255,255,0.07);
+
+  /* ── Accent — controlled by JS in Settings ── */
+  --accent:        #7c5cbf;
+  --accent-light:  #9b7de0;
+  --accent-dim:    rgba(124,92,191,0.15);
+  --accent-glow:   0 0 22px rgba(124,92,191,0.35);
+  --accent-glow-s: 0 0 10px rgba(124,92,191,0.25);
+
+  /* ── Status colors ── */
+  --green:       #10b981;
+  --green-dim:   rgba(16,185,129,0.12);
+  --red:         #ef4444;
+  --red-dim:     rgba(239,68,68,0.12);
+  --yellow:      #f59e0b;
+  --yellow-dim:  rgba(245,158,11,0.12);
+  --purple:      #a855f7;
+
+  /* ── Text ── */
+  --t1:  #e8eaf0;
+  --t2:  #8892a4;
+  --t3:  #4a5568;
+
+  /* ── Radii / layout ── */
+  --r8:    8px;
+  --r12:   12px;
+  --r16:   16px;
+  --sidebar: 220px;
+  --topbar:  60px;
+  --ease:    all 0.2s ease;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background: var(--bg);
+  color: var(--t1);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+button  { cursor: pointer; border: none; outline: none; font-family: inherit; background: none; }
+input, textarea, select { font-family: inherit; outline: none; border: none; background: none; color: var(--t1); }
+a       { text-decoration: none; color: inherit; }
+img     { display: block; }
+
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 4px; }
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+}
+
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--bg2) 25%, var(--bg3) 50%, var(--bg2) 75%);
+  background-size: 1200px 100%;
+  animation: shimmer 1.6s infinite linear;
+  border-radius: var(--r8);
+}
+
+button:active { transform: scale(0.96); }
