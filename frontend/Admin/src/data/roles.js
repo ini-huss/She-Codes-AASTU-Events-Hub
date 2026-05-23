@@ -67,8 +67,8 @@ export function can(user, permission) {
 // Roles a given user is allowed to assign to others
 export function assignableRoles(user) {
   if (!user) return []
-  if (user.role === 'Super Admin') return ['Admin']              // Super Admin only appoints Admins
-  if (user.role === 'Admin')       return ['Organizer', 'Viewer'] // Admin manages Organizers and Viewers
+  if (user.role === 'Super Admin') return ['Admin', 'Organizer', 'Viewer'] // Super Admin can assign any role below theirs
+  if (user.role === 'Admin')       return ['Organizer', 'Viewer']           // Admin manages Organizers and Viewers
   return []
 }
 

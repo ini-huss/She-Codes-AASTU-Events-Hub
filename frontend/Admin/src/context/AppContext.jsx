@@ -4,7 +4,7 @@ import { T } from '../data/translations'
 import { can, ROLE_LEVEL, assignableRoles } from '../data/roles'
 import { hashPassword, verifyPassword } from '../utils/crypto'
 import { writeAuditEntry, AUDIT, severityOf } from '../utils/auditLog'
-import { syncPublicEvents } from '../utils/studentBridge'
+import { syncPublicEvents, onRegistrationsChange, getRegistrationCountForEvent } from '../utils/studentBridge'
 
 const AppContext = createContext(null)
 
@@ -107,6 +107,34 @@ export function AppProvider({ children }) {
   }, [accentColor])
 
   useEffect(() => { save('aastu_lang', language) }, [language])
+
+  // ── Sync student registration counts back into events ─────────────────────
+  useEffect(() => {
+    function syncCounts() {
+      setEvents(prev => {
+        const updated = prev.map(e => {
+          const liveCount = getRegistrationCountForEvent(e.id)
+          // Only update if the student count is higher (students may have registered)
+          if (liveCount > (e.registrations || 0)) {
+            return { ...e, registrations: liveCount }
+          }
+          return e
+        })
+        // Only save if something actually changed
+        const changed = updated.some((e, i) => e.registrations !== prev[i].registrations)
+        if (changed) {
+          save('aastu_events', updated)
+          syncPublicEvents(updated)
+        }
+        return changed ? updated : prev
+      })
+    }
+    // Sync on mount
+    syncCounts()
+    // Listen for live changes from the student tab
+    const unsub = onRegistrationsChange(() => syncCounts())
+    return unsub
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const t = (key) => T[language]?.[key] ?? T['English'][key] ?? key
 
@@ -397,6 +425,22 @@ export function AppProvider({ children }) {
     const newU = { ...user, id: Date.now() }
     audit(AUDIT.USER_ADDED, { detail: `Added user: "${user.name}" as ${user.role} (${user.department})` })
     setUsers(prev => [newU, ...prev])
+    // Also add a stub account so the user appears in accounts list
+    // (no passwordHash — they must sign up themselves to set a password)
+    const freshAccounts = load('aastu_accounts', [])
+    const alreadyExists = freshAccounts.find(a => a.email?.toLowerCase() === user.email?.toLowerCase())
+    if (!alreadyExists) {
+      const stubAccount = {
+        id: newU.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        department: user.department || 'Unassigned',
+        avatar: newU.avatar || user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase(),
+        passwordHash: null, // no password — user must sign up to set one
+      }
+      setAccounts([...freshAccounts, stubAccount])
+    }
   }
 
   function deleteUser(id) {

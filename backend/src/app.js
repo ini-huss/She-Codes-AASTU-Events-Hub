@@ -19,7 +19,7 @@ app.use(morgan("dev")); // Logging
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/registrations", registrationRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 
 
 // Health check

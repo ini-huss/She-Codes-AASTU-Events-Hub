@@ -155,3 +155,41 @@
   .formGrid { grid-template-columns: 1fr; }
   .title { font-size: 24px; }
 }
+
+/* ── Inline Role Picker (Super Admin) ─────────────────────────────────────── */
+.actionsCell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.rolePicker { display: flex; gap: 5px; flex-wrap: wrap; }
+
+.rolePickBtn {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 700; letter-spacing: .03em;
+  padding: 4px 10px; border-radius: 20px;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--t2); cursor: pointer; transition: var(--ease);
+  white-space: nowrap;
+}
+.rolePickBtn:not(:disabled):hover {
+  border-color: var(--accent); color: var(--accent);
+  background: var(--accent-dim);
+}
+.rolePickBtn:disabled { cursor: default; }
+
+/* Active state per role */
+.roleAdminBtn {
+  background: rgba(16,185,129,.12);
+  border-color: rgba(16,185,129,.5);
+  color: #10b981;
+}
+.roleOrgBtn {
+  background: rgba(168,85,247,.12);
+  border-color: rgba(168,85,247,.5);
+  color: #a855f7;
+}
+.roleViewBtn {
+  background: var(--bg3);
+  border-color: var(--border);
+  color: var(--t2);
+}
+
+.roleCheckMark { margin-left: 2px; opacity: .7; }

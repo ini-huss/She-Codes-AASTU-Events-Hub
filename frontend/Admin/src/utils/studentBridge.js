@@ -1,26 +1,18 @@
 // ─── Student Platform Bridge ──────────────────────────────────────────────────
-// When your friends finish the student-facing platform, they read from this key.
-// Every time an event is approved or updated, this file syncs the public data.
-//
-// HOW TO CONNECT:
-// In the student platform, read localStorage key 'aastu_public_events'
-// It contains an array of approved events safe to show to students.
-// Poll it every 30 seconds or use a storage event listener for live updates.
-//
-// Example in student platform:
-//   const events = JSON.parse(localStorage.getItem('aastu_public_events') || '[]')
-//
-// When you move to a real backend, replace this with an API call to:
-//   GET /api/public/events  →  returns approved events
+// Shared localStorage keys used by both Admin and Student platforms.
+// Admin writes approved events → Student reads them.
+// Student writes registrations → Admin reads them to update counts.
 
-const PUBLIC_KEY = 'aastu_public_events'
+export const PUBLIC_KEY        = 'aastu_public_events'
+export const REGISTRATIONS_KEY = 'aastu_student_registrations'
 
-// Fields safe to expose to students (no internal admin data)
+// Fields exposed to students
 const PUBLIC_FIELDS = [
   'id', 'name', 'organizer', 'category', 'date', 'venue',
-  'description', 'image', 'registrations', 'status',
+  'description', 'image', 'registrations', 'status', 'price', 'capacity',
 ]
 
+// ── Admin → Student: push approved events ────────────────────────────────────
 export function syncPublicEvents(allEvents) {
   try {
     const approved = allEvents
@@ -42,10 +34,53 @@ export function getPublicEvents() {
   } catch { return [] }
 }
 
-// Listen for changes from the student platform side (cross-tab communication)
+// ── Student → Admin: registration counts ─────────────────────────────────────
+// Each entry: { eventId, studentName, studentEmail, registeredAt }
+export function getStudentRegistrations() {
+  try {
+    const raw = localStorage.getItem(REGISTRATIONS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+export function addStudentRegistration(entry) {
+  try {
+    const all = getStudentRegistrations()
+    // Prevent duplicate registration by same email for same event
+    const already = all.find(r => r.eventId === entry.eventId && r.studentEmail === entry.studentEmail)
+    if (already) return { success: false, reason: 'already_registered' }
+    const newEntry = { ...entry, registeredAt: new Date().toISOString() }
+    localStorage.setItem(REGISTRATIONS_KEY, JSON.stringify([...all, newEntry]))
+    return { success: true }
+  } catch { return { success: false, reason: 'error' } }
+}
+
+export function getRegistrationCountForEvent(eventId) {
+  try {
+    return getStudentRegistrations().filter(r => r.eventId === eventId).length
+  } catch { return 0 }
+}
+
+export function isStudentRegistered(eventId, studentEmail) {
+  try {
+    return getStudentRegistrations().some(r => r.eventId === eventId && r.studentEmail === studentEmail)
+  } catch { return false }
+}
+
+// ── Cross-tab live updates ────────────────────────────────────────────────────
 export function onPublicEventsChange(callback) {
   function handler(e) {
     if (e.key === PUBLIC_KEY) {
+      try { callback(JSON.parse(e.newValue || '[]')) } catch {}
+    }
+  }
+  window.addEventListener('storage', handler)
+  return () => window.removeEventListener('storage', handler)
+}
+
+export function onRegistrationsChange(callback) {
+  function handler(e) {
+    if (e.key === REGISTRATIONS_KEY) {
       try { callback(JSON.parse(e.newValue || '[]')) } catch {}
     }
   }

@@ -6,7 +6,7 @@ const router = express.Router();
 const {
   authMiddleware,
   adminMiddleware,
-} = require("../middleware/authMiddleware");
+} = require("../middleware/auth.middleware");
 
 const Registration = require("../models/Registration");
 const Event = require("../models/Event");

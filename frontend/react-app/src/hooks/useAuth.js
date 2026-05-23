@@ -1,1 +1,1 @@
-// TODO: useAuth.js - to be implemented
+export { useAuth } from "../context/AuthContext"
