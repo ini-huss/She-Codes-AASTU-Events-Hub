@@ -7,6 +7,7 @@ import {
   ClipboardCheck, UserCheck
 } from 'lucide-react'
 import s from './Sidebar.module.css'
+import { STUDENT_URL } from '../config'
 
 const NAV_META = {
   dashboard:     { icon: LayoutDashboard, key: 'dashboard' },
@@ -103,7 +104,7 @@ export default function Sidebar() {
         <button
           className={s.logoutBtn}
           style={{ marginTop: 6, color: 'var(--accent)', borderColor: 'var(--accent)', opacity: 0.85 }}
-          onClick={() => window.open('http://localhost:5174/home', '_blank')}
+          onClick={() => window.open(`${STUDENT_URL}/home`, '_blank')}
         >
           <Zap size={14} /> Student Site ↗
         </button>

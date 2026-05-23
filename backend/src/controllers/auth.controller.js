@@ -159,7 +159,7 @@ const updateProfile = async (req, res) => {
     if (profilePicture) updates.profilePicture = profilePicture;
 
     const user = await User.findByIdAndUpdate(
-      req.userId,
+      req.user._id,
       updates,
       { new: true, runValidators: true }
     ).select("-password");
@@ -189,7 +189,7 @@ const changePassword = async (req, res) => {
       });
     }
 
-    const user = await User.findById(req.userId);
+    const user = await User.findById(req.user._id);
     
     // Verify current password
     const isMatch = await bcrypt.compare(currentPassword, user.password);

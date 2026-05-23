@@ -130,22 +130,25 @@ function SuperAdminDashboard() {
 
 // ── Admin Dashboard ───────────────────────────────────────────────────────────
 function AdminDashboard() {
-  const { totalRegistrations, activeEvents, pendingEvents, setActivePage, events, users } = useApp()
+  const { totalRegistrations, activeEvents, pendingEvents, setActivePage, events } = useApp()
+  const [stats, setStats]       = React.useState(null)
+  const [statsLoading, setLoad] = React.useState(true)
+  const [statsErr, setErr]      = React.useState('')
 
-  // Real revenue from paid events only
+  React.useEffect(() => {
+    import('../api').then(({ default: api }) => {
+      api.get('/admin/stats')
+        .then(res => { setStats(res.data.stats); setLoad(false) })
+        .catch(() => { setErr('Failed to load stats'); setLoad(false) })
+    })
+  }, [])
+
   const revenue = events
     .filter(e => e.status === 'Approved' && e.price > 0)
     .reduce((sum, e) => sum + (e.registrations || 0) * (e.price || 0), 0)
 
-  const approvedThisMonth = events.filter(e => {
-    if (e.status !== 'Approved') return false
-    const now = new Date()
-    const monthStr = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
-    return e.submittedAt?.includes(monthStr) || true // fallback: count all approved
-  }).length
-
   const organizers = [...new Set(
-    events.filter(e => e.status === 'Approved').map(e => e.organizer.slice(0, 2).toUpperCase())
+    events.filter(e => e.status === 'Approved').map(e => (e.organizer || '').slice(0, 2).toUpperCase())
   )].slice(0, 4)
 
   return (
@@ -155,10 +158,12 @@ function AdminDashboard() {
         <p className={s.sub}>Welcome back — here's what's happening at AASTU today.</p>
       </div>
 
+      {statsErr && <div style={{ color: 'var(--red)', fontSize: 13, marginBottom: 16 }}>{statsErr}</div>}
+
       <div className={s.statsGrid}>
         <StatCard
           label="Total Registrations"
-          value={totalRegistrations.toLocaleString()}
+          value={statsLoading ? '…' : (stats?.totalRegistrations ?? totalRegistrations).toLocaleString()}
           sub="across all events"
           icon={Users}
         />
@@ -170,8 +175,8 @@ function AdminDashboard() {
         />
         <StatCard
           label="Active Events"
-          value={activeEvents}
-          sub="approved and live"
+          value={statsLoading ? '…' : (stats?.totalEvents ?? activeEvents)}
+          sub="published and live"
           icon={CalendarCheck}
           avatars={organizers}
         />

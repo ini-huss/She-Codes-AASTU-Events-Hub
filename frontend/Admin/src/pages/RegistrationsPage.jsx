@@ -1,23 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Search, X } from 'lucide-react'
-import s from './UsersPage.module.css' // reuse existing table styles
-
-const REGISTRATIONS_KEY = 'aastu_student_registrations'
-
-function loadRegistrations() {
-  try {
-    const raw = localStorage.getItem(REGISTRATIONS_KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch { return [] }
-}
-
-function onRegistrationsChange(cb) {
-  function handler(e) {
-    if (e.key === REGISTRATIONS_KEY) cb()
-  }
-  window.addEventListener('storage', handler)
-  return () => window.removeEventListener('storage', handler)
-}
+import s from './UsersPage.module.css'
+import api from '../api'
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -30,40 +14,53 @@ function formatDate(iso) {
 }
 
 export default function RegistrationsPage() {
-  const [registrations, setRegistrations] = useState(() => loadRegistrations())
-  const [search, setSearch] = useState('')
+  const [registrations, setRegistrations] = useState([])
+  const [loading, setLoading]             = useState(true)
+  const [error, setError]                 = useState('')
+  const [search, setSearch]               = useState('')
 
-  // Reload when another tab writes to localStorage
   useEffect(() => {
-    const unsub = onRegistrationsChange(() => setRegistrations(loadRegistrations()))
-    return unsub
+    api.get('/admin/registrations')
+      .then(res => {
+        const raw = res.data.registrations || res.data || []
+        setRegistrations(raw)
+        setLoading(false)
+      })
+      .catch(err => {
+        setError(err.response?.data?.message || 'Failed to load registrations.')
+        setLoading(false)
+      })
   }, [])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return registrations
-    return registrations.filter(r =>
-      r.studentName?.toLowerCase().includes(q) ||
-      r.studentEmail?.toLowerCase().includes(q) ||
-      r.eventName?.toLowerCase().includes(q)
-    )
+    return registrations.filter(r => {
+      const name  = r.user?.name  || r.studentName  || ''
+      const email = r.user?.email || r.studentEmail || ''
+      const evt   = r.event?.title || r.eventName   || ''
+      return name.toLowerCase().includes(q) || email.toLowerCase().includes(q) || evt.toLowerCase().includes(q)
+    })
   }, [registrations, search])
+
+  const cancelled = registrations.filter(r => r.status === 'cancelled').length
+  const active    = registrations.length - cancelled
 
   return (
     <div className={s.page}>
       <div className={s.header}>
         <div>
           <h1 className={s.title}>Registrations</h1>
-          <p className={s.sub}>All student event registrations from the student portal.</p>
+          <p className={s.sub}>All student event registrations from the backend.</p>
         </div>
       </div>
 
-      {/* Stats row */}
+      {/* Stats */}
       <div className={s.statsRow}>
         {[
-          { label: 'Total',      value: registrations.length,                                                    color: 'var(--accent)' },
-          { label: 'Registered', value: registrations.filter(r => r.status !== 'cancelled').length,              color: 'var(--green)'  },
-          { label: 'Cancelled',  value: registrations.filter(r => r.status === 'cancelled').length,              color: '#ef4444'       },
+          { label: 'Total',      value: loading ? '…' : registrations.length, color: 'var(--accent)' },
+          { label: 'Registered', value: loading ? '…' : active,               color: 'var(--green)'  },
+          { label: 'Cancelled',  value: loading ? '…' : cancelled,            color: '#ef4444'       },
         ].map(({ label, value, color }) => (
           <div key={label} className={`${s.statBox} glass`}>
             <div className={s.statVal} style={{ color }}>{value}</div>
@@ -82,11 +79,7 @@ export default function RegistrationsPage() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          {search && (
-            <button className={s.clearX} onClick={() => setSearch('')}>
-              <X size={12} />
-            </button>
-          )}
+          {search && <button className={s.clearX} onClick={() => setSearch('')}><X size={12} /></button>}
         </div>
       </div>
 
@@ -104,42 +97,43 @@ export default function RegistrationsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {loading ? (
+                <tr><td colSpan={5} className={s.emptyRow}>Loading registrations…</td></tr>
+              ) : error ? (
+                <tr><td colSpan={5} className={s.emptyRow} style={{ color: 'var(--red)' }}>{error}</td></tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={5} className={s.emptyRow}>
                     {registrations.length === 0
-                      ? 'No registrations yet. Students register from the student portal.'
+                      ? 'No registrations yet.'
                       : 'No registrations match your search.'}
                   </td>
                 </tr>
               ) : filtered.map((r, i) => {
+                const name      = r.user?.name  || r.studentName  || '—'
+                const email     = r.user?.email || r.studentEmail || '—'
+                const eventName = r.event?.title || r.eventName   || '—'
                 const isCancelled = r.status === 'cancelled'
                 return (
-                  <tr key={r.id ?? i}>
+                  <tr key={r._id || r.id || i}>
                     <td>
                       <div className={s.userCell}>
                         <div className={s.avatar} style={{ fontSize: 11 }}>
-                          {(r.studentName || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                          {name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
                         </div>
-                        <div className={s.userName}>{r.studentName || '—'}</div>
+                        <div className={s.userName}>{name}</div>
                       </div>
                     </td>
-                    <td className={s.tdEmail}>{r.studentEmail || '—'}</td>
-                    <td className={s.tdDept}>{r.eventName || '—'}</td>
-                    <td className={s.tdJoined}>{formatDate(r.registeredAt)}</td>
+                    <td className={s.tdEmail}>{email}</td>
+                    <td className={s.tdDept}>{eventName}</td>
+                    <td className={s.tdJoined}>{formatDate(r.createdAt || r.registeredAt)}</td>
                     <td>
-                      <span
-                        className={s.statusBadge}
-                        style={{
-                          background: isCancelled ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
-                          color:      isCancelled ? '#ef4444'               : '#22c55e',
-                          border:     `1px solid ${isCancelled ? '#ef444444' : '#22c55e44'}`,
-                          borderRadius: 20,
-                          padding: '3px 10px',
-                          fontSize: 11,
-                          fontWeight: 700,
-                        }}
-                      >
+                      <span style={{
+                        background:   isCancelled ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)',
+                        color:        isCancelled ? '#ef4444'               : '#22c55e',
+                        border:       `1px solid ${isCancelled ? '#ef444444' : '#22c55e44'}`,
+                        borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 700,
+                      }}>
                         {isCancelled ? 'Cancelled' : 'Registered'}
                       </span>
                     </td>
